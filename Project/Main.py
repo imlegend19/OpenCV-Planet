@@ -4,10 +4,21 @@ import cv2
 from PIL import Image
 from PIL import ImageTk
 from tkinter import filedialog
+from imutils import contours
+import numpy as np
+import imutils
+from tkinter import messagebox
 
 
 def client_exit():  # exit function for closing gui
     exit()
+
+
+def combine_funcs(*funcs):
+    def combined_func(*args, **kwargs):
+        for f in funcs:
+            f(*args, **kwargs)
+    return combined_func
 
 
 def face_and_eye():  # function for face and eye detection
@@ -197,7 +208,9 @@ def body_detection():  # this function is for full body detection
         # to read more about it go to https://en.wikipedia.org/wiki/Histogram_of_oriented_gradients
         hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
         # cap = cv2.VideoCapture(0)
-        cap = cv2.VideoCapture('C:/Users/lenovo/Desktop/Walking.mp4')
+        path = filedialog.askopenfilename()
+        cap = cv2.VideoCapture(path)
+        # cap = cv2.VideoCapture('C:/Users/lenovo/Desktop/Walking.mp4')
 
         if cap.isOpened() is True:
             while True:
@@ -287,10 +300,160 @@ def ninja_eye_detector():
     cv2.destroyAllWindows()
 
 
+def card_reader():
+    # construct the argument parse and parse the arguments
+    # ap = argparse.ArgumentParser()
+    # ap.add_argument("-i", "--image", required=True, help="path to input image")
+    # ap.add_argument("-r", "--reference", required=True,	help="path to reference OCR-A image")
+    # args = vars(ap.parse_args())
+
+    # define a dictionary that maps the first digit of a credit card
+    # number to the credit card type
+    FIRST_NUMBER = {
+        "3": "American Express",
+        "4": "Visa",
+        "5": "MasterCard",
+        "6": "Discover Card"
+    }
+
+    """ load the reference OCR-A image from disk, convert it to grayscale, and threshold it, such that the digits appear 
+    as *white* on a *black* background and invert it, such that the digits appear as *white* on a *black*  """
+    # ref = cv2.imread(args["reference"])
+
+    ref = cv2.imread("C:/Users/lenovo/Desktop/reference.png")
+    ref = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
+    ref = cv2.threshold(ref, 10, 255, cv2.THRESH_BINARY_INV)[1]
+
+    # find contours in the OCR-A image (i.e,. the outlines of the digits)
+    # sort them from left to right, and initialize a dictionary to map
+    # digit name to the ROI
+    refCnts = cv2.findContours(ref.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    refCnts = refCnts[0] if imutils.is_cv2() else refCnts[1]
+    refCnts = contours.sort_contours(refCnts, method="left-to-right")[0]
+    digits = {}
+
+    # loop over the OCR-A reference contours
+    for (i, c) in enumerate(refCnts):
+        # compute the bounding box for the digit, extract it, and resize
+        # it to a fixed size
+        (x, y, w, h) = cv2.boundingRect(c)
+        roi = ref[y:y + h, x:x + w]
+        roi = cv2.resize(roi, (57, 88))
+
+        # update the digits dictionary, mapping the digit name to the ROI
+        digits[i] = roi
+
+    # initialize a rectangular (wider than it is tall) and square
+    # structuring kernel
+    rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3))
+    sqKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+
+    # load the input image, resize it, and convert it to grayscale
+    path = filedialog.askopenfilename()
+    image = cv2.imread(path)
+    image = imutils.resize(image, width=300)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # apply a tophat (whitehat) morphological operator to find light
+    # regions against a dark background (i.e., the credit card numbers)
+    tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKernel)
+
+    # compute the Scharr gradient of the tophat image, then scale
+    # the rest back into the range [0, 255]
+    gradX = cv2.Sobel(tophat, ddepth=cv2.CV_32F, dx=1, dy=0, ksize=-1)
+    gradX = np.absolute(gradX)
+    (minVal, maxVal) = (np.min(gradX), np.max(gradX))
+    gradX = (255 * ((gradX - minVal) / (maxVal - minVal)))
+    gradX = gradX.astype("uint8")
+
+    # apply a closing operation using the rectangular kernel to help
+    # cloes gaps in between credit card number digits, then apply
+    # Otsu's thresholding method to binarize the image
+    gradX = cv2.morphologyEx(gradX, cv2.MORPH_CLOSE, rectKernel)
+    thresh = cv2.threshold(gradX, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+
+    # apply a second closing operation to the binary image, again
+    # to help close gaps between credit card number regions
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, sqKernel)
+
+    # find contours in the thresholded image, then initialize the
+    # list of digit locations
+    cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnts = cnts[0] if imutils.is_cv2() else cnts[1]
+    locs = []
+
+    # loop over the contours
+    for (i, c) in enumerate(cnts):
+        # compute the bounding box of the contour, then use the
+        # bounding box coordinates to derive the aspect ratio
+        (x, y, w, h) = cv2.boundingRect(c)
+        ar = w / float(h)
+        if (ar > 2.5) and (ar < 4.0):
+            if ((w > 40) and (w < 55)) and ((h > 10) and (h < 20)):
+                locs.append((x, y, w, h))
+
+    # sort the digit locations from left-to-right, then initialize the
+    # list of classified digits
+    locs = sorted(locs, key=lambda x: x[0])
+    output = []
+
+    # loop over the 4 groupings of 4 digits
+    for (i, (gX, gY, gW, gH)) in enumerate(locs):
+        # initialize the list of group digits
+        groupOutput = []
+
+        # extract the group ROI of 4 digits from the grayscale image,
+        # then apply thresholding to segment the digits from the
+        # background of the credit card
+        group = gray[gY - 5:gY + gH + 5, gX - 5:gX + gW + 5]
+        group = cv2.threshold(group, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+
+        # detect the contours of each individual digit in the group,
+        # then sort the digit contours from left to right
+        digitCnts = cv2.findContours(group.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        digitCnts = digitCnts[0] if imutils.is_cv2() else digitCnts[1]
+        digitCnts = contours.sort_contours(digitCnts, method="left-to-right")[0]
+
+        # loop over the digit contours
+        for c in digitCnts:
+            (x, y, w, h) = cv2.boundingRect(c)
+            roi = group[y:y + h, x:x + w]
+            roi = cv2.resize(roi, (57, 88))
+            # initialize a list of template matching scores
+            scores = []
+
+            # loop over the reference digit name and digit ROI
+            for (digit, digitROI) in digits.items():
+                result = cv2.matchTemplate(roi, digitROI, cv2.TM_CCOEFF)
+                (_, score, _, _) = cv2.minMaxLoc(result)
+                scores.append(score)
+            groupOutput.append(str(np.argmax(scores)))
+
+        cv2.rectangle(image, (gX - 5, gY - 5), (gX + gW + 5, gY + gH + 5), (0, 0, 255), 2)
+        cv2.putText(image, "".join(groupOutput), (gX, gY - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+
+        # update the output digits list
+
+        output.extend(groupOutput)
+
+    # display the output credit card information to the screen
+    # print("Credit Card Type: {}".format(FIRST_NUMBER[output[0]]))
+    # print("Credit Card #: {}".format("".join(output)))
+    output_final = "Card Type : %s \n" % (FIRST_NUMBER[output[0]])
+    output_final += "Credit Card Number : %s" % ("".join(output))
+
+    cv2.imshow("Image", image)
+
+    messagebox.showinfo("Output", output_final)
+
+    cv2.waitKey(0)
+
+
 class OpenCVApp(tk.Tk):
 
     def __init__(self, *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
+        tk.Tk.wm_title(self, "Open CV Planet")
 
         self.title_font = tkfont.Font(family='Helvetica', size=18, weight="bold")
 
@@ -300,7 +463,7 @@ class OpenCVApp(tk.Tk):
         container.grid_columnconfigure(0, weight=1)
 
         self.frames = {}
-        for F in (StartPage, FaceAndEye, BodySensor):
+        for F in (StartPage, FaceAndEye, BodySensor, CardReader):
             page_name = F.__name__
             frame = F(parent=container, controller=self)
             self.frames[page_name] = frame
@@ -333,6 +496,8 @@ class StartPage(tk.Frame):
                             command=lambda: controller.show_frame("BodySensor"))
         button5 = tk.Button(self, text="Edge Coloring - Photo Editor",
                             command=select_image)
+        button6 = tk.Button(self, text="Text Recogniser",
+                            command=lambda: controller.show_frame("CardReader"))
 
         exit_btn = tk.Button(self, text="Exit", fg="red", command=client_exit)
 
@@ -341,7 +506,7 @@ class StartPage(tk.Frame):
         button3.pack()
         button4.pack()
         button5.pack()
-
+        button6.pack()
         exit_btn.pack()
 
 
@@ -370,11 +535,25 @@ class BodySensor(tk.Frame):
         label = tk.Label(self, text="", font=controller.title_font)
         label.pack(side="top", fill="x", pady=10)
         button1 = tk.Button(self, text="Upper Body",
-                           command=upper_body_detection)
+                            command=upper_body_detection)
         button1.pack()
         button2 = tk.Button(self, text="Full Body Detection",
                             command=body_detection)
         button2.pack()
+        button = tk.Button(self, text="Back", fg="red",
+                           command=lambda: controller.show_frame("StartPage"))
+        button.pack()
+
+
+class CardReader(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
+        label = tk.Label(self, text="Face and Eye Detection", font=controller.title_font)
+        label.pack(side="top", fill="x", pady=10)
+        button0 = tk.Button(self, text="Card Reader", command=card_reader)
+        button0.pack()
+
         button = tk.Button(self, text="Back", fg="red",
                            command=lambda: controller.show_frame("StartPage"))
         button.pack()
