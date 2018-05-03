@@ -15,5 +15,5 @@ I have made the code quite self-explanatory. Any doubts regarding anything in my
 
 ## My Future Projects:
 
-I am making a product for the police which would help theem find **_missing_** people. I am using *facial recognition* in this. If you are willing to give a contribution to my project try to reach me and we could work together. I am presenting this model on 30th June'18. 
+I am making a product for the police which would help them find **_missing_** people. I am using *facial recognition* in this. If you are willing to give a contribution to my project try to reach me and we could work together. I am presenting this model on 30th June'18. 
 
