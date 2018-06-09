@@ -11,7 +11,7 @@ Till now I have uploaded code of my first open cv and tkinter project. I have ma
 7) Credit Card Number Recognition
 8) Canny image converter
 
-I have made the code quite self-explanatory. Any doubts regarding anything in my code please reach me through mu mail id which is "mahengandhi19@gmail.com" and I would answer your question as soon as possible.
+I have made the code quite self-explanatory. Any doubts regarding anything in my code please reach me through my mail id which is "mahengandhi19@gmail.com" and I would answer your question as soon as possible.
 
 ## My Future Projects:
 
